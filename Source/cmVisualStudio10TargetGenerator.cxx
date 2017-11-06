@@ -15,6 +15,7 @@
 #include "cmVisualStudioGeneratorOptions.h"
 #include "windows.h"
 
+#include <iterator>
 #include <memory> // IWYU pragma: keep
 
 static std::string cmVS10EscapeXML(std::string arg)
@@ -1601,6 +1602,8 @@ void cmVisualStudio10TargetGenerator::WriteExtraSource(cmSourceFile const* sf)
   std::string shaderEntryPoint;
   std::string shaderModel;
   std::string shaderAdditionalFlags;
+  std::string shaderDisableOptimizations;
+  std::string shaderEnableDebug;
   std::string outputHeaderFile;
   std::string variableName;
   std::string settingsGenerator;
@@ -1665,6 +1668,16 @@ void cmVisualStudio10TargetGenerator::WriteExtraSource(cmSourceFile const* sf)
     // Figure out if there's any additional flags to use
     if (const char* saf = sf->GetProperty("VS_SHADER_FLAGS")) {
       shaderAdditionalFlags = saf;
+      toolHasSettings = true;
+    }
+    // Figure out if debug information should be generated
+    if (const char* sed = sf->GetProperty("VS_SHADER_ENABLE_DEBUG")) {
+      shaderEnableDebug = cmSystemTools::IsOn(sed) ? "true" : "false";
+      toolHasSettings = true;
+    }
+    // Figure out if optimizations should be disabled
+    if (const char* sdo = sf->GetProperty("VS_SHADER_DISABLE_OPTIMIZATIONS")) {
+      shaderDisableOptimizations = cmSystemTools::IsOn(sdo) ? "true" : "false";
       toolHasSettings = true;
     }
   } else if (ext == "jpg" || ext == "png") {
@@ -1808,6 +1821,16 @@ void cmVisualStudio10TargetGenerator::WriteExtraSource(cmSourceFile const* sf)
                                  << cmVS10EscapeXML(variableName);
         this->WriteString("</VariableName>\n", 0);
       }
+    }
+    if (!shaderEnableDebug.empty()) {
+      this->WriteString("<EnableDebuggingInformation>", 3);
+      (*this->BuildFileStream) << cmVS10EscapeXML(shaderEnableDebug)
+                               << "</EnableDebuggingInformation>\n";
+    }
+    if (!shaderDisableOptimizations.empty()) {
+      this->WriteString("<DisableOptimizations>", 3);
+      (*this->BuildFileStream) << cmVS10EscapeXML(shaderDisableOptimizations)
+                               << "</DisableOptimizations>\n";
     }
     if (!shaderAdditionalFlags.empty()) {
       this->WriteString("<AdditionalOptions>", 3);
@@ -2368,14 +2391,14 @@ bool cmVisualStudio10TargetGenerator::ComputeClOptions(
   // Choose a language whose flags to use for ClCompile.
   static const char* clLangs[] = { "CXX", "C", "Fortran", "CSharp" };
   std::string langForClCompile;
-  if (std::find(cmArrayBegin(clLangs), cmArrayEnd(clLangs), linkLanguage) !=
-      cmArrayEnd(clLangs)) {
+  if (std::find(cm::cbegin(clLangs), cm::cend(clLangs), linkLanguage) !=
+      cm::cend(clLangs)) {
     langForClCompile = linkLanguage;
   } else {
     std::set<std::string> languages;
     this->GeneratorTarget->GetLanguages(languages, configName);
-    for (const char* const* l = cmArrayBegin(clLangs);
-         l != cmArrayEnd(clLangs); ++l) {
+    for (const char* const* l = cm::cbegin(clLangs); l != cm::cend(clLangs);
+         ++l) {
       if (languages.find(*l) != languages.end()) {
         langForClCompile = *l;
         break;

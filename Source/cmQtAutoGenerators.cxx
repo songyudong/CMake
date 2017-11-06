@@ -827,7 +827,7 @@ bool cmQtAutoGenerators::ParseHeaderFile(std::string const& absFilename,
 bool cmQtAutoGenerators::ParsePostprocess()
 {
   bool success = true;
-  // Read missin dependecies
+  // Read missing dependencies
   for (auto& item : this->MocJobsIncluded) {
     if (!item->DependsValid) {
       std::string content;
@@ -1392,9 +1392,13 @@ bool cmQtAutoGenerators::MocGenerateAll()
       {
         // Compose command
         std::vector<std::string> cmd = this->MocPredefsCmd;
-        // Add options
-        cmd.insert(cmd.end(), this->MocAllOptions.begin(),
-                   this->MocAllOptions.end());
+        // Add includes
+        cmd.insert(cmd.end(), this->MocIncludes.begin(),
+                   this->MocIncludes.end());
+        // Add definitions
+        for (std::string const& def : this->MocDefinitions) {
+          cmd.push_back("-D" + def);
+        }
         // Execute command
         if (!this->RunCommand(cmd, output)) {
           this->LogCommandError(cmQtAutoGen::MOC,
@@ -1423,7 +1427,7 @@ bool cmQtAutoGenerators::MocGenerateAll()
       }
     }
 
-    // Add moc_predefs.h to moc file dependecies
+    // Add moc_predefs.h to moc file dependencies
     for (auto const& item : this->MocJobsIncluded) {
       item->Depends.insert(this->MocPredefsFileAbs);
     }
@@ -1931,11 +1935,21 @@ bool cmQtAutoGenerators::RccGenerateFile(const RccJob& rccJob)
   bool rccGenerated = false;
 
   std::string rccFileAbs;
-  if (this->MultiConfig == cmQtAutoGen::SINGLE) {
-    rccFileAbs = rccJob.RccFile;
-  } else {
-    rccFileAbs =
-      cmQtAutoGen::AppendFilenameSuffix(rccJob.RccFile, this->ConfigSuffix);
+  {
+    std::string suffix;
+    switch (this->MultiConfig) {
+      case cmQtAutoGen::SINGLE:
+        break;
+      case cmQtAutoGen::WRAP:
+        suffix = "_CMAKE";
+        suffix += this->ConfigSuffix;
+        suffix += "_";
+        break;
+      case cmQtAutoGen::FULL:
+        suffix = this->ConfigSuffix;
+        break;
+    }
+    rccFileAbs = cmQtAutoGen::AppendFilenameSuffix(rccJob.RccFile, suffix);
   }
   std::string const rccFileRel = cmSystemTools::RelativePath(
     this->AutogenBuildDir.c_str(), rccFileAbs.c_str());
