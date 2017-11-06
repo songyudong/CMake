@@ -39,7 +39,7 @@ const std::string& cmInstallCommandArguments::GetDestination() const
   if (this->GenericArguments != nullptr) {
     return this->GenericArguments->GetDestination();
   }
-  return this->EmptyString;
+  return EmptyString;
 }
 
 const std::string& cmInstallCommandArguments::GetComponent() const
@@ -65,7 +65,7 @@ const std::string& cmInstallCommandArguments::GetRename() const
   if (this->GenericArguments != nullptr) {
     return this->GenericArguments->GetRename();
   }
-  return this->EmptyString;
+  return EmptyString;
 }
 
 const std::string& cmInstallCommandArguments::GetPermissions() const
@@ -76,7 +76,7 @@ const std::string& cmInstallCommandArguments::GetPermissions() const
   if (this->GenericArguments != nullptr) {
     return this->GenericArguments->GetPermissions();
   }
-  return this->EmptyString;
+  return EmptyString;
 }
 
 bool cmInstallCommandArguments::GetOptional() const
@@ -153,7 +153,7 @@ void cmInstallCommandArguments::Parse(const std::vector<std::string>* args,
 
 bool cmInstallCommandArguments::CheckPermissions()
 {
-  this->PermissionsString = "";
+  this->PermissionsString.clear();
   for (std::string const& perm : this->Permissions.GetVector()) {
     if (!this->CheckPermissions(perm, this->PermissionsString)) {
       return false;

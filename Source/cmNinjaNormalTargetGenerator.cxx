@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <iterator>
 #include <map>
+#include <memory> // IWYU pragma: keep
 #include <set>
 #include <sstream>
 
@@ -29,7 +30,6 @@
 #include "cmStateSnapshot.h"
 #include "cmStateTypes.h"
 #include "cmSystemTools.h"
-#include "cm_auto_ptr.hxx"
 #include "cmake.h"
 
 class cmCustomCommand;
@@ -241,7 +241,7 @@ void cmNinjaNormalTargetGenerator::WriteDeviceLinkRule(bool useResponseFile)
       launcher += " ";
     }
 
-    CM_AUTO_PTR<cmRulePlaceholderExpander> rulePlaceholderExpander(
+    std::unique_ptr<cmRulePlaceholderExpander> rulePlaceholderExpander(
       this->GetLocalGenerator()->CreateRulePlaceholderExpander());
 
     // Rule for linking library/executable.
@@ -365,7 +365,7 @@ void cmNinjaNormalTargetGenerator::WriteLinkRule(bool useResponseFile)
       launcher += " ";
     }
 
-    CM_AUTO_PTR<cmRulePlaceholderExpander> rulePlaceholderExpander(
+    std::unique_ptr<cmRulePlaceholderExpander> rulePlaceholderExpander(
       this->GetLocalGenerator()->CreateRulePlaceholderExpander());
 
     // Rule for linking library/executable.
@@ -636,7 +636,7 @@ void cmNinjaNormalTargetGenerator::WriteDeviceLinkStatement()
   vars["TARGET_FILE"] =
     localGen.ConvertToOutputFormat(targetOutputReal, cmOutputConverter::SHELL);
 
-  CM_AUTO_PTR<cmLinkLineComputer> linkLineComputer(
+  std::unique_ptr<cmLinkLineComputer> linkLineComputer(
     new cmNinjaLinkLineDeviceComputer(
       this->GetLocalGenerator(),
       this->GetLocalGenerator()->GetStateSnapshot().GetDirectory(),
@@ -667,7 +667,7 @@ void cmNinjaNormalTargetGenerator::WriteDeviceLinkStatement()
     std::string t = vars["ARCH_FLAGS"];
     localGen.AddArchitectureFlags(t, &genTarget, cudaLinkLanguage, cfgName);
     vars["ARCH_FLAGS"] = t;
-    t = "";
+    t.clear();
     localGen.AddLanguageFlagsForLinking(t, &genTarget, cudaLinkLanguage,
                                         cfgName);
     vars["LANGUAGE_COMPILE_FLAGS"] = t;
@@ -839,7 +839,7 @@ void cmNinjaNormalTargetGenerator::WriteLinkStatement()
   vars["TARGET_FILE"] =
     localGen.ConvertToOutputFormat(targetOutputReal, cmOutputConverter::SHELL);
 
-  CM_AUTO_PTR<cmLinkLineComputer> linkLineComputer(
+  std::unique_ptr<cmLinkLineComputer> linkLineComputer(
     this->GetGlobalGenerator()->CreateLinkLineComputer(
       this->GetLocalGenerator(),
       this->GetLocalGenerator()->GetStateSnapshot().GetDirectory()));
@@ -884,7 +884,7 @@ void cmNinjaNormalTargetGenerator::WriteLinkStatement()
     std::string t = vars["ARCH_FLAGS"];
     localGen.AddArchitectureFlags(t, &genTarget, TargetLinkLanguage, cfgName);
     vars["ARCH_FLAGS"] = t;
-    t = "";
+    t.clear();
     t += lwyuFlags;
     localGen.AddLanguageFlagsForLinking(t, &genTarget, TargetLinkLanguage,
                                         cfgName);
@@ -1070,7 +1070,7 @@ void cmNinjaNormalTargetGenerator::WriteLinkStatement()
       if (targetOutputReal == soName || targetOutput == soName) {
         symlinkVars["SONAME"] = soName;
       } else {
-        symlinkVars["SONAME"] = "";
+        symlinkVars["SONAME"].clear();
         symlinks.push_back(soName);
       }
       symlinks.push_back(targetOutput);

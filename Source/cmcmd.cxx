@@ -12,7 +12,6 @@
 #include "cmSystemTools.h"
 #include "cmUtils.hxx"
 #include "cmVersion.h"
-#include "cm_auto_ptr.hxx"
 #include "cmake.h"
 
 #if defined(CMAKE_BUILD_WITH_CMAKE)
@@ -37,6 +36,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <memory> // IWYU pragma: keep
 #include <sstream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -282,8 +282,7 @@ int cmcmd::HandleCppCheck(const std::string& runCmd,
   std::vector<std::string> cppcheck_cmd;
   cmSystemTools::ExpandListArgument(runCmd, cppcheck_cmd, true);
   // extract all the -D, -U, and -I options from the compile line
-  for (size_t i = 0; i < orig_cmd.size(); i++) {
-    const std::string& opt = orig_cmd[i];
+  for (auto const& opt : orig_cmd) {
     if (opt.size() > 2) {
       if ((opt[0] == '-') &&
           ((opt[1] == 'D') || (opt[1] == 'I') || (opt[1] == 'U'))) {
@@ -349,6 +348,7 @@ int cmcmd::HandleCoCompileCommands(std::vector<std::string>& args)
     std::bind(&cmcmd::HandleCppCheck, a1, a2, a3);
   // copy the command options to a vector of strings
   std::vector<std::string> commandOptions;
+  commandOptions.reserve(coCompileTypes.size());
   for (const auto& i : coCompileTypes) {
     commandOptions.push_back(i.first);
   }
@@ -367,9 +367,7 @@ int cmcmd::HandleCoCompileCommands(std::vector<std::string>& args)
     } else if (doing_options) {
       bool optionFound = false;
       // check arg against all the commandOptions
-      for (std::vector<std::string>::size_type i = 0;
-           i < commandOptions.size(); ++i) {
-        const std::string& command = commandOptions[i];
+      for (auto const& command : commandOptions) {
         if (arg.compare(0, command.size(), command) == 0) {
           optionFound = true;
           runCmd = arg.substr(command.size());
@@ -931,8 +929,8 @@ int cmcmd::ExecuteCMakeCommand(std::vector<std::string>& args)
         cmStateSnapshot snapshot = cm.GetCurrentSnapshot();
         snapshot.GetDirectory().SetCurrentBinary(startOutDir);
         snapshot.GetDirectory().SetCurrentSource(startDir);
-        CM_AUTO_PTR<cmMakefile> mf(new cmMakefile(ggd, snapshot));
-        CM_AUTO_PTR<cmLocalGenerator> lgd(ggd->CreateLocalGenerator(mf.get()));
+        cmMakefile mf(ggd, snapshot);
+        std::unique_ptr<cmLocalGenerator> lgd(ggd->CreateLocalGenerator(&mf));
 
         // Actually scan dependencies.
         return lgd->UpdateDependencies(depInfo.c_str(), verbose, color) ? 0
@@ -1540,8 +1538,36 @@ int cmcmd::VisualStudioLink(std::vector<std::string> const& args, int type)
   return vsLink.Link();
 }
 
+enum NumberFormat
+{
+  FORMAT_DECIMAL,
+  FORMAT_HEX
+};
+struct NumberFormatter
+{
+  NumberFormat Format;
+  int Value;
+  NumberFormatter(NumberFormat format, int value)
+    : Format(format)
+    , Value(value)
+  {
+  }
+};
+std::ostream& operator<<(std::ostream& stream,
+                         NumberFormatter const& formatter)
+{
+  auto const& flags = stream.flags();
+  if (formatter.Format == FORMAT_DECIMAL) {
+    stream << std::dec << formatter.Value;
+  } else {
+    stream << "0x" << std::hex << formatter.Value;
+  }
+  stream.flags(flags);
+  return stream;
+}
 static bool RunCommand(const char* comment, std::vector<std::string>& command,
-                       bool verbose, int* retCodeOut = nullptr)
+                       bool verbose, NumberFormat exitFormat,
+                       int* retCodeOut = nullptr)
 {
   if (verbose) {
     std::cout << comment << ":\n";
@@ -1549,31 +1575,33 @@ static bool RunCommand(const char* comment, std::vector<std::string>& command,
   }
   std::string output;
   int retCode = 0;
-  // use rc command to create .res file
-  bool res = cmSystemTools::RunSingleCommand(
+  bool commandResult = cmSystemTools::RunSingleCommand(
     command, &output, &output, &retCode, nullptr, cmSystemTools::OUTPUT_NONE);
-  // always print the output of the command, unless
-  // it is the dumb rc command banner, but if the command
-  // returned an error code then print the output anyway as
-  // the banner may be mixed with some other important information.
-  if (output.find("Resource Compiler Version") == std::string::npos || !res ||
-      retCode) {
-    std::cout << output;
-  }
-  if (!res) {
-    std::cout << comment << " failed to run." << std::endl;
-    return false;
-  }
-  // if retCodeOut is requested then always return true
-  // and set the retCodeOut to retCode
+  bool returnValue;
   if (retCodeOut) {
-    *retCodeOut = retCode;
-    return true;
+    if (!commandResult) {
+      *retCodeOut = (retCode == 0) ? -1 : retCode;
+    } else {
+      *retCodeOut = retCode;
+    }
+    returnValue = true; // always return true if retCodeOut is requested
+  } else {
+    returnValue = commandResult && (retCode == 0);
   }
-  if (retCode != 0) {
-    std::cout << comment << " failed. with " << retCode << "\n";
+  if (!commandResult || retCode) {
+    std::cout << comment << ": command \"" << cmJoin(command, " ")
+              << "\" failed (exit code "
+              << NumberFormatter(exitFormat, retCode)
+              << ") with the following output:\n"
+              << output;
+  } else {
+    // always print the output of the command, unless
+    // it is the dumb rc command banner
+    if (output.find("Resource Compiler Version") == std::string::npos) {
+      std::cout << output;
+    }
   }
-  return retCode == 0;
+  return returnValue;
 }
 
 bool cmVSLink::Parse(std::vector<std::string>::const_iterator argBeg,
@@ -1723,10 +1751,10 @@ int cmVSLink::LinkIncremental()
 
   // Compile the resource file.
   std::vector<std::string> rcCommand;
-  rcCommand.push_back(cmSystemTools::FindProgram("rc.exe"));
+  rcCommand.push_back("rc");
   rcCommand.push_back("/fo" + this->ManifestFileRes);
   rcCommand.push_back(this->ManifestFileRC);
-  if (!RunCommand("RC Pass 1", rcCommand, this->Verbose)) {
+  if (!RunCommand("RC Pass 1", rcCommand, this->Verbose, FORMAT_DECIMAL)) {
     return -1;
   }
 
@@ -1734,7 +1762,8 @@ int cmVSLink::LinkIncremental()
   this->LinkCommand.push_back(this->ManifestFileRes);
 
   // Run the link command (possibly generates intermediate manifest).
-  if (!RunCommand("LINK Pass 1", this->LinkCommand, this->Verbose)) {
+  if (!RunCommand("LINK Pass 1", this->LinkCommand, this->Verbose,
+                  FORMAT_DECIMAL)) {
     return -1;
   }
 
@@ -1748,12 +1777,13 @@ int cmVSLink::LinkIncremental()
   }
 
   // Compile the resource file again.
-  if (!RunCommand("RC Pass 2", rcCommand, this->Verbose)) {
+  if (!RunCommand("RC Pass 2", rcCommand, this->Verbose, FORMAT_DECIMAL)) {
     return -1;
   }
 
   // Link incrementally again to use the updated resource.
-  if (!RunCommand("FINAL LINK", this->LinkCommand, this->Verbose)) {
+  if (!RunCommand("FINAL LINK", this->LinkCommand, this->Verbose,
+                  FORMAT_DECIMAL)) {
     return -1;
   }
   return 0;
@@ -1762,7 +1792,7 @@ int cmVSLink::LinkIncremental()
 int cmVSLink::LinkNonIncremental()
 {
   // Run the link command (possibly generates intermediate manifest).
-  if (!RunCommand("LINK", this->LinkCommand, this->Verbose)) {
+  if (!RunCommand("LINK", this->LinkCommand, this->Verbose, FORMAT_DECIMAL)) {
     return -1;
   }
 
@@ -1780,7 +1810,7 @@ int cmVSLink::LinkNonIncremental()
 int cmVSLink::RunMT(std::string const& out, bool notify)
 {
   std::vector<std::string> mtCommand;
-  mtCommand.push_back(cmSystemTools::FindProgram("mt.exe"));
+  mtCommand.push_back("mt");
   mtCommand.push_back("/nologo");
   mtCommand.push_back("/manifest");
   if (this->LinkGeneratesManifest) {
@@ -1795,7 +1825,7 @@ int cmVSLink::RunMT(std::string const& out, bool notify)
     mtCommand.push_back("/notify_update");
   }
   int mtRet = 0;
-  if (!RunCommand("MT", mtCommand, this->Verbose, &mtRet)) {
+  if (!RunCommand("MT", mtCommand, this->Verbose, FORMAT_HEX, &mtRet)) {
     return -1;
   }
   return mtRet;

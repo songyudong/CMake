@@ -4,7 +4,6 @@
 
 #include "cmsys/FStream.hxx"
 #include <stdio.h>
-#include <string.h>
 
 #include "cmMakefile.h"
 #include "cmState.h"
@@ -33,11 +32,11 @@ bool cmTryRunCommand::InitialPass(std::vector<std::string> const& argv,
   // build an arg list for TryCompile and extract the runArgs,
   std::vector<std::string> tryCompile;
 
-  this->CompileResultVariable = "";
-  this->RunResultVariable = "";
-  this->OutputVariable = "";
-  this->RunOutputVariable = "";
-  this->CompileOutputVariable = "";
+  this->CompileResultVariable.clear();
+  this->RunResultVariable.clear();
+  this->OutputVariable.clear();
+  this->RunOutputVariable.clear();
+  this->CompileOutputVariable.clear();
 
   std::string runArgs;
   unsigned int i;
@@ -191,13 +190,15 @@ void cmTryRunCommand::RunExecutable(const std::string& runArgs,
     finalCommand.c_str(), out, out, &retVal, nullptr,
     cmSystemTools::OUTPUT_NONE, timeout);
   // set the run var
-  char retChar[1000];
+  char retChar[16];
+  const char* retStr;
   if (worked) {
     sprintf(retChar, "%i", retVal);
+    retStr = retChar;
   } else {
-    strcpy(retChar, "FAILED_TO_RUN");
+    retStr = "FAILED_TO_RUN";
   }
-  this->Makefile->AddCacheDefinition(this->RunResultVariable, retChar,
+  this->Makefile->AddCacheDefinition(this->RunResultVariable, retStr,
                                      "Result of TRY_RUN",
                                      cmStateEnums::INTERNAL);
 }

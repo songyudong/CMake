@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <ctype.h>
+#include <memory> // IWYU pragma: keep
 #include <sstream>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +38,6 @@
 #include "cmTestGenerator.h" // IWYU pragma: keep
 #include "cmVersion.h"
 #include "cmWorkingDirectory.h"
-#include "cm_auto_ptr.hxx"
 #include "cm_sys_stat.h"
 #include "cmake.h"
 
@@ -264,7 +264,7 @@ bool cmMakefile::ExecuteCommand(const cmListFileFunction& lff,
   // Lookup the command prototype.
   if (cmCommand* proto = this->GetState()->GetCommand(name)) {
     // Clone the prototype.
-    CM_AUTO_PTR<cmCommand> pcmd(proto->Clone());
+    std::unique_ptr<cmCommand> pcmd(proto->Clone());
     pcmd->SetMakefile(this);
 
     // Decide whether to invoke the command.
@@ -584,11 +584,12 @@ void cmMakefile::EnforceDirectoryLevelRules() const
 
 void cmMakefile::AddEvaluationFile(
   const std::string& inputFile,
-  CM_AUTO_PTR<cmCompiledGeneratorExpression> outputName,
-  CM_AUTO_PTR<cmCompiledGeneratorExpression> condition, bool inputIsContent)
+  std::unique_ptr<cmCompiledGeneratorExpression> outputName,
+  std::unique_ptr<cmCompiledGeneratorExpression> condition,
+  bool inputIsContent)
 {
   this->EvaluationFiles.push_back(new cmGeneratorExpressionEvaluationFile(
-    inputFile, outputName, condition, inputIsContent,
+    inputFile, std::move(outputName), std::move(condition), inputIsContent,
     this->GetPolicyStatus(cmPolicies::CMP0070)));
 }
 
@@ -1645,7 +1646,7 @@ void cmMakefile::AddCacheDefinition(const std::string& name, const char* value,
       nvalue = value ? value : "";
 
       cmSystemTools::ExpandListArgument(nvalue, files);
-      nvalue = "";
+      nvalue.clear();
       for (cc = 0; cc < files.size(); cc++) {
         if (!cmSystemTools::IsOff(files[cc].c_str())) {
           files[cc] = cmSystemTools::CollapseFullPath(files[cc]);
@@ -2448,7 +2449,7 @@ cmake::MessageType cmMakefile::ExpandVariablesInStringOld(
     std::string input = source;
 
     // Start with empty output.
-    source = "";
+    source.clear();
 
     // Look for one @VAR@ at a time.
     const char* in = input.c_str();
@@ -2874,7 +2875,7 @@ void cmMakefile::PopFunctionBlockerBarrier(bool reportError)
   FunctionBlockersType::size_type barrier =
     this->FunctionBlockerBarriers.back();
   while (this->FunctionBlockers.size() > barrier) {
-    CM_AUTO_PTR<cmFunctionBlocker> fb(this->FunctionBlockers.back());
+    std::unique_ptr<cmFunctionBlocker> fb(this->FunctionBlockers.back());
     this->FunctionBlockers.pop_back();
     if (reportError) {
       // Report the context in which the unclosed block was opened.
@@ -3009,7 +3010,7 @@ void cmMakefile::AddFunctionBlocker(cmFunctionBlocker* fb)
   this->FunctionBlockers.push_back(fb);
 }
 
-CM_AUTO_PTR<cmFunctionBlocker> cmMakefile::RemoveFunctionBlocker(
+std::unique_ptr<cmFunctionBlocker> cmMakefile::RemoveFunctionBlocker(
   cmFunctionBlocker* fb, const cmListFileFunction& lff)
 {
   // Find the function blocker stack barrier for the current scope.
@@ -3042,11 +3043,11 @@ CM_AUTO_PTR<cmFunctionBlocker> cmMakefile::RemoveFunctionBlocker(
       }
       cmFunctionBlocker* b = *pos;
       this->FunctionBlockers.erase(pos);
-      return CM_AUTO_PTR<cmFunctionBlocker>(b);
+      return std::unique_ptr<cmFunctionBlocker>(b);
     }
   }
 
-  return CM_AUTO_PTR<cmFunctionBlocker>();
+  return std::unique_ptr<cmFunctionBlocker>();
 }
 
 const char* cmMakefile::GetHomeDirectory() const
@@ -3185,8 +3186,9 @@ int cmMakefile::TryCompile(const std::string& srcdir,
   // do a configure
   cm.SetHomeDirectory(srcdir);
   cm.SetHomeOutputDirectory(bindir);
-  cm.SetGeneratorPlatform(this->GetCMakeInstance()->GetGeneratorPlatform());
-  cm.SetGeneratorToolset(this->GetCMakeInstance()->GetGeneratorToolset());
+  cm.SetGeneratorInstance(this->GetSafeDefinition("CMAKE_GENERATOR_INSTANCE"));
+  cm.SetGeneratorPlatform(this->GetSafeDefinition("CMAKE_GENERATOR_PLATFORM"));
+  cm.SetGeneratorToolset(this->GetSafeDefinition("CMAKE_GENERATOR_TOOLSET"));
   cm.LoadCache();
   if (!gg->IsMultiConfig()) {
     if (const char* config =
@@ -3280,15 +3282,10 @@ cmGlobalGenerator* cmMakefile::GetGlobalGenerator() const
   return this->GlobalGenerator;
 }
 
-void cmMakefile::GetTestDetails(std::vector<std::pair<std::string, std::string>> &testDetails)
+void cmMakefile::GetTestNames(std::vector<std::string> & testNames)
 {
   for (auto it = Tests.begin(); it != Tests.end(); ++it) {
-    std::string command = "";
-    for (auto & cmd : it->second->GetCommand()) {
-      command.append(cmd);
-      command.append(" ");
-    }
-    testDetails.push_back(std::make_pair(it->first, command));
+	  testNames.push_back(it->first);
   }
 
   return;
@@ -3362,7 +3359,7 @@ std::string cmMakefile::GetModulesFile(const char* filename) const
   moduleInCMakeRoot += filename;
   cmSystemTools::ConvertToUnixSlashes(moduleInCMakeRoot);
   if (!cmSystemTools::FileExists(moduleInCMakeRoot.c_str())) {
-    moduleInCMakeRoot = "";
+    moduleInCMakeRoot.clear();
   }
 
   // Normally, prefer the files found in CMAKE_MODULE_PATH. Only when the file
@@ -3546,7 +3543,7 @@ int cmMakefile::ConfigureFile(const char* infile, const char* outfile,
     std::string inLine;
     std::string outLine;
     while (cmSystemTools::GetLineFromStream(fin, inLine)) {
-      outLine = "";
+      outLine.clear();
       this->ConfigureString(inLine, outLine, atOnly, escapeQuotes);
       fout << outLine << newLineCharacters;
     }
@@ -3717,7 +3714,7 @@ cmTarget* cmMakefile::AddImportedTarget(const std::string& name,
                                         bool global)
 {
   // Create the target.
-  CM_AUTO_PTR<cmTarget> target(
+  std::unique_ptr<cmTarget> target(
     new cmTarget(name, type, global ? cmTarget::VisibilityImportedGlobally
                                     : cmTarget::VisibilityImported,
                  this));

@@ -50,7 +50,7 @@ if(WIN32)
     "${CMake_BINARY_DIR}/Source/cmakeversion.rc"
     )
 
-	set(VERSION_RC_FILE "${CMake_BINARY_DIR}/Source/cmakeversion.rc")
+    set(VERSION_RC_FILE "${CMake_BINARY_DIR}/Source/cmakeversion.rc")
 endif()
 
 set(CMAKE_VERSION "${CMake_VERSION_MAJOR}.${CMake_VERSION_MINOR}.${CMake_VERSION_PATCH}")
@@ -598,7 +598,6 @@ set(SRCS
   cmWriteFileCommand.cxx
   cmWriteFileCommand.h
 
-  cm_auto_ptr.hxx
   cm_get_date.h
   cm_get_date.c
   cm_utf8.h
@@ -694,8 +693,8 @@ if (WIN32)
       cmGhsMultiTargetGenerator.h
       cmGhsMultiGpj.cxx
       cmGhsMultiGpj.h
-      cmVSSetupHelper.h
       cmVSSetupHelper.cxx
+      cmVSSetupHelper.h
       )
 
     # Add a manifest file to executables on Windows to allow for
@@ -792,6 +791,8 @@ if(WIN32 AND NOT UNIX)
   # We need the crypt32 library on Windows for crypto/cert APIs.
   target_link_libraries(CMakeLib rpcrt4 crypt32)
 endif()
+
+target_compile_definitions(CMakeLib PUBLIC ${CLANG_TIDY_DEFINITIONS})
 
 #
 # CTestLib
@@ -948,8 +949,13 @@ if(UNIX)
   endif()
 endif()
 
-if(WIN32)
+if(CYGWIN)
+  find_package(LibUUID)
+endif()
+if(WIN32 OR (CYGWIN AND LibUUID_FOUND))
   set(CPACK_SRCS ${CPACK_SRCS}
+    CPack/Wix/cmCMakeToWixPath.cxx
+    CPack/Wix/cmCMakeToWixPath.h
     CPack/WiX/cmCPackWIXGenerator.cxx
     CPack/WiX/cmCPackWIXGenerator.h
     CPack/WiX/cmWIXAccessControlList.cxx
@@ -970,7 +976,7 @@ if(WIN32)
     CPack/WiX/cmWIXShortcut.h
     CPack/WiX/cmWIXSourceWriter.cxx
     CPack/WiX/cmWIXSourceWriter.h
-  )
+    )
 endif()
 
 if(APPLE)
@@ -1002,6 +1008,11 @@ if(APPLE)
       "Some CPack functionality may be limited.\n"
       "See CMakeFiles/CMakeError.log for details of the failure.")
   endif()
+endif()
+if(CYGWIN AND LibUUID_FOUND)
+  target_link_libraries(CPackLib ${LibUUID_LIBRARIES})
+  include_directories(CPackLib ${LibUUID_INCLUDE_DIRS})
+  set_property(SOURCE CPack/cmCPackGeneratorFactory.cxx PROPERTY COMPILE_DEFINITIONS HAVE_LIBUUID)
 endif()
 if(CPACK_ENABLE_FREEBSD_PKG AND FREEBSD_PKG_INCLUDE_DIRS AND FREEBSD_PKG_LIBRARIES)
   target_link_libraries(CPackLib ${FREEBSD_PKG_LIBRARIES})

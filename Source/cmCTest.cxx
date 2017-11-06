@@ -15,6 +15,7 @@
 #include <ctype.h>
 #include <iostream>
 #include <map>
+#include <memory> // IWYU pragma: keep
 #include <sstream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,7 +51,6 @@
 #include "cmVersion.h"
 #include "cmVersionConfig.h"
 #include "cmXMLWriter.h"
-#include "cm_auto_ptr.hxx"
 #include "cmake.h"
 
 #if defined(__BEOS__) || defined(__HAIKU__)
@@ -147,7 +147,7 @@ std::string cmCTest::CurrentTime()
 std::string cmCTest::GetCostDataFile()
 {
   std::string fname = this->GetCTestConfiguration("CostDataFile");
-  if (fname == "") {
+  if (fname.empty()) {
     fname = this->GetBinaryDir() + "/Testing/Temporary/CTestCostData.txt";
   }
   return fname;
@@ -281,9 +281,9 @@ cmCTest::cmCTest()
   this->GlobalTimeout = 0;
   this->LastStopTimeout = 24 * 60 * 60;
   this->CompressXMLFiles = false;
-  this->CTestConfigFile = "";
-  this->ScheduleType = "";
-  this->StopTime = "";
+  this->CTestConfigFile.clear();
+  this->ScheduleType.clear();
+  this->StopTime.clear();
   this->NextDayStopTime = false;
   this->OutputLogFile = nullptr;
   this->OutputLogFileLastTag = -1;
@@ -421,9 +421,8 @@ int cmCTest::Initialize(const char* binary_dir, cmCTestStartCommand* command)
   cm.SetHomeOutputDirectory("");
   cm.GetCurrentSnapshot().SetDefaultDefinitions();
   cmGlobalGenerator gg(&cm);
-  CM_AUTO_PTR<cmMakefile> mf(new cmMakefile(&gg, cm.GetCurrentSnapshot()));
-  if (!this->ReadCustomConfigurationFileTree(this->BinaryDir.c_str(),
-                                             mf.get())) {
+  cmMakefile mf(&gg, cm.GetCurrentSnapshot());
+  if (!this->ReadCustomConfigurationFileTree(this->BinaryDir.c_str(), &mf)) {
     cmCTestOptionalLog(
       this, DEBUG, "Cannot find custom configuration file tree" << std::endl,
       quiet);
@@ -477,7 +476,7 @@ int cmCTest::Initialize(const char* binary_dir, cmCTestStartCommand* command)
                &min);
         if (year != lctime->tm_year + 1900 || mon != lctime->tm_mon + 1 ||
             day != lctime->tm_mday) {
-          tag = "";
+          tag.clear();
         }
         std::string tagmode;
         if (cmSystemTools::GetLineFromStream(tfin, tagmode)) {
@@ -970,12 +969,13 @@ int cmCTest::RunMakeCommand(const char* command, std::string& output,
   }
 
   std::vector<const char*> argv;
+  argv.reserve(args.size() + 1);
   for (std::string const& a : args) {
     argv.push_back(a.c_str());
   }
   argv.push_back(nullptr);
 
-  output = "";
+  output.clear();
   cmCTestLog(this, HANDLER_VERBOSE_OUTPUT, "Run command:");
   for (char const* arg : argv) {
     if (!arg) {
@@ -1123,9 +1123,9 @@ int cmCTest::RunTest(std::vector<const char*> argv, std::string* output,
       *log << "* Run internal CTest" << std::endl;
     }
 
-    CM_AUTO_PTR<cmSystemTools::SaveRestoreEnvironment> saveEnv;
+    std::unique_ptr<cmSystemTools::SaveRestoreEnvironment> saveEnv;
     if (modifyEnv) {
-      saveEnv.reset(new cmSystemTools::SaveRestoreEnvironment);
+      saveEnv = cm::make_unique<cmSystemTools::SaveRestoreEnvironment>();
       cmSystemTools::AppendEnv(*environment);
     }
 
@@ -1147,12 +1147,12 @@ int cmCTest::RunTest(std::vector<const char*> argv, std::string* output,
   }
   std::vector<char> tempOutput;
   if (output) {
-    *output = "";
+    output->clear();
   }
 
-  CM_AUTO_PTR<cmSystemTools::SaveRestoreEnvironment> saveEnv;
+  std::unique_ptr<cmSystemTools::SaveRestoreEnvironment> saveEnv;
   if (modifyEnv) {
-    saveEnv.reset(new cmSystemTools::SaveRestoreEnvironment);
+    saveEnv = cm::make_unique<cmSystemTools::SaveRestoreEnvironment>();
     cmSystemTools::AppendEnv(*environment);
   }
 
@@ -1235,7 +1235,7 @@ std::string cmCTest::SafeBuildIdField(const std::string& value)
 {
   std::string safevalue(value);
 
-  if (safevalue != "") {
+  if (!safevalue.empty()) {
     // Disallow non-filename and non-space whitespace characters.
     // If they occur, replace them with ""
     //
@@ -1254,7 +1254,7 @@ std::string cmCTest::SafeBuildIdField(const std::string& value)
     }
   }
 
-  if (safevalue == "") {
+  if (safevalue.empty()) {
     safevalue = "(empty)";
   }
 
@@ -2513,7 +2513,7 @@ const char* cmCTest::GetSpecificTrack()
 void cmCTest::SetSpecificTrack(const char* track)
 {
   if (!track) {
-    this->SpecificTrack = "";
+    this->SpecificTrack.clear();
     return;
   }
   this->SpecificTrack = track;
@@ -2570,6 +2570,7 @@ bool cmCTest::RunCommand(std::vector<std::string> const& args,
                          const char* dir, double timeout, Encoding encoding)
 {
   std::vector<const char*> argv;
+  argv.reserve(args.size() + 1);
   for (std::string const& a : args) {
     argv.push_back(a.c_str());
   }

@@ -38,7 +38,7 @@ void cmProcessTools::RunProcess(struct cmsysProcess_s* cp, OutputParser* out,
   if (err) {
     processOutput.DecodeText(std::string(), strdata, 2);
     if (!strdata.empty()) {
-      out->Process(strdata.c_str(), int(strdata.size()));
+      err->Process(strdata.c_str(), int(strdata.size()));
     }
   }
   cmsysProcess_WaitForExit(cp, nullptr);
@@ -73,11 +73,11 @@ bool cmProcessTools::LineParser::ProcessChunk(const char* first, int length)
 
       // Hand this line to the subclass implementation.
       if (!this->ProcessLine()) {
-        this->Line = "";
+        this->Line.clear();
         return false;
       }
 
-      this->Line = "";
+      this->Line.clear();
     } else if (*c != '\r' || !this->IgnoreCR) {
       // Append this character to the line under construction.
       this->Line.append(1, *c);

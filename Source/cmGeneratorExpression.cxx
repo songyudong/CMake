@@ -3,6 +3,7 @@
 #include "cmGeneratorExpression.h"
 
 #include "cmsys/RegularExpression.hxx"
+#include <memory> // IWYU pragma: keep
 #include <utility>
 
 #include "assert.h"
@@ -12,7 +13,6 @@
 #include "cmGeneratorExpressionLexer.h"
 #include "cmGeneratorExpressionParser.h"
 #include "cmSystemTools.h"
-#include "cm_auto_ptr.hxx"
 
 cmGeneratorExpression::cmGeneratorExpression(
   const cmListFileBacktrace& backtrace)
@@ -20,14 +20,14 @@ cmGeneratorExpression::cmGeneratorExpression(
 {
 }
 
-CM_AUTO_PTR<cmCompiledGeneratorExpression> cmGeneratorExpression::Parse(
+std::unique_ptr<cmCompiledGeneratorExpression> cmGeneratorExpression::Parse(
   std::string const& input)
 {
-  return CM_AUTO_PTR<cmCompiledGeneratorExpression>(
+  return std::unique_ptr<cmCompiledGeneratorExpression>(
     new cmCompiledGeneratorExpression(this->Backtrace, input));
 }
 
-CM_AUTO_PTR<cmCompiledGeneratorExpression> cmGeneratorExpression::Parse(
+std::unique_ptr<cmCompiledGeneratorExpression> cmGeneratorExpression::Parse(
   const char* input)
 {
   return this->Parse(std::string(input ? input : ""));
@@ -68,7 +68,7 @@ const char* cmCompiledGeneratorExpression::EvaluateWithContext(
     return this->Input.c_str();
   }
 
-  this->Output = "";
+  this->Output.clear();
 
   std::vector<cmGeneratorExpressionEvaluator*>::const_iterator it =
     this->Evaluators.begin();
@@ -81,7 +81,7 @@ const char* cmCompiledGeneratorExpression::EvaluateWithContext(
     this->SeenTargetProperties.insert(context.SeenTargetProperties.begin(),
                                       context.SeenTargetProperties.end());
     if (context.HadError) {
-      this->Output = "";
+      this->Output.clear();
       break;
     }
   }
@@ -296,7 +296,7 @@ void cmGeneratorExpression::Split(const std::string& input,
       std::string::size_type startPos = input.rfind(';', pos);
       if (startPos == std::string::npos) {
         preGenex = part;
-        part = "";
+        part.clear();
       } else if (startPos != pos - 1 && startPos >= lastPos) {
         part = input.substr(lastPos, startPos - lastPos);
         preGenex = input.substr(startPos + 1, pos - startPos - 1);

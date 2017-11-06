@@ -5,6 +5,7 @@
 #include "cmsys/RegularExpression.hxx"
 #include <algorithm>
 #include <assert.h>
+#include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
@@ -243,6 +244,7 @@ cmTarget::cmTarget(std::string const& name, cmStateEnums::TargetType type,
     this->SetPropertyDefault("AUTOMOC", nullptr);
     this->SetPropertyDefault("AUTOUIC", nullptr);
     this->SetPropertyDefault("AUTORCC", nullptr);
+    this->SetPropertyDefault("AUTOMOC_COMPILER_PREDEFINES", nullptr);
     this->SetPropertyDefault("AUTOMOC_DEPEND_FILTERS", nullptr);
     this->SetPropertyDefault("AUTOMOC_MACRO_NAMES", nullptr);
     this->SetPropertyDefault("AUTOMOC_MOC_OPTIONS", nullptr);
@@ -254,6 +256,7 @@ cmTarget::cmTarget(std::string const& name, cmStateEnums::TargetType type,
     this->SetPropertyDefault("WIN32_EXECUTABLE", nullptr);
     this->SetPropertyDefault("MACOSX_BUNDLE", nullptr);
     this->SetPropertyDefault("MACOSX_RPATH", nullptr);
+    this->SetPropertyDefault("NO_SYSTEM_FROM_IMPORTED", nullptr);
     this->SetPropertyDefault("BUILD_WITH_INSTALL_NAME_DIR", nullptr);
     this->SetPropertyDefault("C_CLANG_TIDY", nullptr);
     this->SetPropertyDefault("C_COMPILER_LAUNCHER", nullptr);
@@ -278,10 +281,6 @@ cmTarget::cmTarget(std::string const& name, cmStateEnums::TargetType type,
     this->SetPropertyDefault("CUDA_COMPILER_LAUNCHER", nullptr);
     this->SetPropertyDefault("LINK_SEARCH_START_STATIC", nullptr);
     this->SetPropertyDefault("LINK_SEARCH_END_STATIC", nullptr);
-  }
-
-  if (this->GetType() != cmStateEnums::UTILITY) {
-    this->SetPropertyDefault("NO_SYSTEM_FROM_IMPORTED", nullptr);
   }
 
   // Collect the set of configuration types.
@@ -592,8 +591,9 @@ public:
   {
     std::vector<std::string> files;
     cmSystemTools::ExpandListArgument(entry, files);
-    std::vector<cmSourceFileLocation> locations(files.size());
-    std::transform(files.begin(), files.end(), locations.begin(),
+    std::vector<cmSourceFileLocation> locations;
+    locations.reserve(files.size());
+    std::transform(files.begin(), files.end(), std::back_inserter(locations),
                    CreateLocation(this->Needle.GetMakefile()));
 
     return std::find_if(locations.begin(), locations.end(),
@@ -1530,7 +1530,7 @@ bool cmTarget::GetMappedConfig(std::string const& desired_config,
       }
       // If it was found, set the suffix.
       if (*loc || *imp) {
-        suffix = "";
+        suffix.clear();
       }
     } else {
       std::string mcUpper = cmSystemTools::UpperCase(*mci);
@@ -1577,7 +1577,7 @@ bool cmTarget::GetMappedConfig(std::string const& desired_config,
   // configurations and no exact match.
   if (!*loc && !*imp) {
     // The suffix computed above is not useful.
-    suffix = "";
+    suffix.clear();
 
     // Look for a configuration-less location.  This may be set by
     // manually-written code.

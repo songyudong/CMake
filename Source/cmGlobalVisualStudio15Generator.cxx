@@ -88,7 +88,6 @@ cmGlobalVisualStudio15Generator::cmGlobalVisualStudio15Generator(
   this->DefaultCSharpFlagTable = cmVS141CSharpFlagTable;
   this->DefaultLinkFlagTable = cmVS141LinkFlagTable;
   this->Version = VS15;
-  this->MSBuildCommandInitialized = false;
 }
 
 bool cmGlobalVisualStudio15Generator::MatchesGeneratorName(
@@ -110,6 +109,53 @@ void cmGlobalVisualStudio15Generator::WriteSLNHeader(std::ostream& fout)
   } else {
     fout << "# Visual Studio 15\n";
   }
+}
+
+bool cmGlobalVisualStudio15Generator::SetGeneratorInstance(
+  std::string const& i, cmMakefile* mf)
+{
+  if (!i.empty()) {
+    if (!this->vsSetupAPIHelper.SetVSInstance(i)) {
+      std::ostringstream e;
+      /* clang-format off */
+      e <<
+        "Generator\n"
+        "  " << this->GetName() << "\n"
+        "could not find specified instance of Visual Studio:\n"
+        "  " << i;
+      /* clang-format on */
+      mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+      return false;
+    }
+  }
+
+  std::string vsInstance;
+  if (!this->vsSetupAPIHelper.GetVSInstanceInfo(vsInstance)) {
+    std::ostringstream e;
+    /* clang-format off */
+    e <<
+      "Generator\n"
+      "  " << this->GetName() << "\n"
+      "could not find any instance of Visual Studio.\n";
+    /* clang-format on */
+    mf->IssueMessage(cmake::FATAL_ERROR, e.str());
+    return false;
+  }
+
+  // Save the selected instance persistently.
+  std::string genInstance = mf->GetSafeDefinition("CMAKE_GENERATOR_INSTANCE");
+  if (vsInstance != genInstance) {
+    this->CMakeInstance->AddCacheEntry(
+      "CMAKE_GENERATOR_INSTANCE", vsInstance.c_str(),
+      "Generator instance identifier.", cmStateEnums::INTERNAL);
+  }
+
+  return true;
+}
+
+bool cmGlobalVisualStudio15Generator::GetVSInstance(std::string& dir) const
+{
+  return vsSetupAPIHelper.GetVSInstanceInfo(dir);
 }
 
 bool cmGlobalVisualStudio15Generator::InitializeWindows(cmMakefile* mf)
@@ -172,75 +218,36 @@ bool cmGlobalVisualStudio15Generator::IsWin81SDKInstalled() const
   return false;
 }
 
-std::string const& cmGlobalVisualStudio15Generator::GetMSBuildCommand()
-{
-  if (!this->MSBuildCommandInitialized) {
-    this->MSBuildCommandInitialized = true;
-    this->MSBuildCommand = this->FindMSBuildCommand();
-  }
-
-  return this->MSBuildCommand;
-}
-
 std::string cmGlobalVisualStudio15Generator::FindMSBuildCommand()
 {
-  // For VS2017, cmake is deployed at <VSRoot>\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin
-  // Use relative path to find the MSBuild location
-  std::string cmakeCommandLocation = cmSystemTools::GetCMakeCommand();
-  std::size_t found = cmakeCommandLocation.find("/Common7/IDE/CommonExtensions/Microsoft/cmake/cmake/bin");
-  if (found != std::string::npos) {
-    std::string MSBuildPath = cmakeCommandLocation.substr(0, found);
-    MSBuildPath += "/MSBuild/15.0/Bin/MSBuild.exe";
+  std::string msbuild;
 
-    if (cmSystemTools::FileExists(MSBuildPath.c_str()) != true) {
-      return MSBuildPath;
-    } else {
-      return "";
+  // Ask Visual Studio Installer tool.
+  std::string vs;
+  if (vsSetupAPIHelper.GetVSInstanceInfo(vs)) {
+    msbuild = vs + "/MSBuild/15.0/Bin/MSBuild.exe";
+    if (cmSystemTools::FileExists(msbuild)) {
+      return msbuild;
     }
   }
-  else {
-    // If MSBuild path is not yet found the query the VS Setup API to get it
-    std::string VSLocation = "";
-    if (!vsSetupAPIHelper.GetVSInstanceInfo(VSLocation)) {
-      return "";
-    }
 
-    std::string MSBuildLocation =
-      VSLocation + "/MSBuild/15.0/Bin/MSBuild.exe";
-    if (cmSystemTools::FileExists(MSBuildLocation.c_str()) != true) {
-      return "";
-    }
-    return MSBuildLocation;
-  }
+  msbuild = "MSBuild.exe";
+  return msbuild;
 }
 
 std::string cmGlobalVisualStudio15Generator::FindDevEnvCommand()
 {
-  // For VS2017, cmake is deployed at <VSRoot>\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin
-  // Use relative path to find the MSBuild location
-  std::string cmakeCommandLocation = cmSystemTools::GetCMakeCommand();
-  std::size_t found = cmakeCommandLocation.find("/Common7/IDE/CommonExtensions/Microsoft/cmake/cmake/bin");
-  if (found != std::string::npos) {
-    std::string DevEnvPath = cmakeCommandLocation.substr(0, found);
-    DevEnvPath += "/Common7/IDE/devenv.exe";
+  std::string devenv;
 
-    if (cmSystemTools::FileExists(DevEnvPath.c_str()) != true) {
-      return DevEnvPath;
-    }
-    else {
-      return "";
+  // Ask Visual Studio Installer tool.
+  std::string vs;
+  if (vsSetupAPIHelper.GetVSInstanceInfo(vs)) {
+    devenv = vs + "/Common7/IDE/devenv.com";
+    if (cmSystemTools::FileExists(devenv)) {
+      return devenv;
     }
   }
-  else {
-    std::string VSLocation = "";
-    if (!vsSetupAPIHelper.GetVSInstanceInfo(VSLocation)) {
-      return "";
-    }
 
-    std::string DevEnvLocation = VSLocation + "/Common7/IDE/devenv.exe";
-    if (cmSystemTools::FileExists(DevEnvLocation.c_str()) != true) {
-      return "";
-    }
-    return DevEnvLocation;
-  }
+  devenv = "devenv.com";
+  return devenv;
 }

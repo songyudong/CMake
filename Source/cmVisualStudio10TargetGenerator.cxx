@@ -13,10 +13,9 @@
 #include "cmSourceFile.h"
 #include "cmSystemTools.h"
 #include "cmVisualStudioGeneratorOptions.h"
-#include "cmVersion.h"
 #include "windows.h"
 
-#include "cm_auto_ptr.hxx"
+#include <memory> // IWYU pragma: keep
 
 static std::string cmVS10EscapeXML(std::string arg)
 {
@@ -400,9 +399,6 @@ void cmVisualStudio10TargetGenerator::Generate()
                       2);
   }
 
-  std::string cmakeGeneratedVersionString = "<VisualStudioCMakeGeneratedProject>" + std::string(cmVersion::GetCMakeVersion()) + "</VisualStudioCMakeGeneratedProject>\n";
-  this->WriteString(cmakeGeneratedVersionString.c_str(), 2);
-
   std::vector<std::string> keys = this->GeneratorTarget->GetPropertyKeys();
   for (std::vector<std::string>::const_iterator keyIt = keys.begin();
        keyIt != keys.end(); ++keyIt) {
@@ -411,7 +407,7 @@ void cmVisualStudio10TargetGenerator::Generate()
       continue;
     std::string globalKey = keyIt->substr(strlen(prefix));
     // Skip invalid or separately-handled properties.
-    if (globalKey == "" || globalKey == "PROJECT_TYPES" ||
+    if (globalKey.empty() || globalKey == "PROJECT_TYPES" ||
         globalKey == "ROOTNAMESPACE" || globalKey == "KEYWORD") {
       continue;
     }
@@ -618,7 +614,7 @@ void cmVisualStudio10TargetGenerator::WriteDotNetReferences()
        ++i) {
     if (i->first.find("VS_DOTNET_REFERENCE_") == 0) {
       std::string name = i->first.substr(20);
-      if (name != "") {
+      if (!name.empty()) {
         std::string path = i->second.GetValue();
         if (!cmsys::SystemTools::FileIsFullPath(path)) {
           path = std::string(this->GeneratorTarget->Target->GetMakefile()
@@ -1178,6 +1174,15 @@ void cmVisualStudio10TargetGenerator::WriteCustomCommands()
        si != customCommands.end(); ++si) {
     this->WriteCustomCommand(*si);
   }
+
+  // Add CMakeLists.txt file with rule to re-run CMake for user convenience.
+  if (this->GeneratorTarget->GetType() != cmStateEnums::GLOBAL_TARGET &&
+      this->GeneratorTarget->GetName() != CMAKE_CHECK_BUILD_SYSTEM_TARGET) {
+    if (cmSourceFile const* sf =
+          this->LocalGenerator->CreateVCProjBuildRule()) {
+      this->WriteCustomCommand(sf);
+    }
+  }
 }
 
 void cmVisualStudio10TargetGenerator::WriteCustomCommand(
@@ -1596,6 +1601,8 @@ void cmVisualStudio10TargetGenerator::WriteExtraSource(cmSourceFile const* sf)
   std::string shaderEntryPoint;
   std::string shaderModel;
   std::string shaderAdditionalFlags;
+  std::string outputHeaderFile;
+  std::string variableName;
   std::string settingsGenerator;
   std::string settingsLastGenOutput;
   std::string sourceLink;
@@ -1616,7 +1623,7 @@ void cmVisualStudio10TargetGenerator::WriteExtraSource(cmSourceFile const* sf)
       std::string srcDir = this->Makefile->GetCurrentSourceDirectory();
       std::string binDir = this->Makefile->GetCurrentBinaryDirectory();
       if (fullFileName.find(binDir) != std::string::npos) {
-        sourceLink = "";
+        sourceLink.clear();
       } else if (fullFileName.find(srcDir) != std::string::npos) {
         sourceLink = fullFileName.substr(srcDir.length() + 1);
       } else {
@@ -1643,6 +1650,16 @@ void cmVisualStudio10TargetGenerator::WriteExtraSource(cmSourceFile const* sf)
     // Figure out which shader model to use if any
     if (const char* sm = sf->GetProperty("VS_SHADER_MODEL")) {
       shaderModel = sm;
+      toolHasSettings = true;
+    }
+    // Figure out which output header file to use if any
+    if (const char* ohf = sf->GetProperty("VS_SHADER_OUTPUT_HEADER_FILE")) {
+      outputHeaderFile = ohf;
+      toolHasSettings = true;
+    }
+    // Figure out which variable name to use if any
+    if (const char* vn = sf->GetProperty("VS_SHADER_VARIABLE_NAME")) {
+      variableName = vn;
       toolHasSettings = true;
     }
     // Figure out if there's any additional flags to use
@@ -1726,7 +1743,8 @@ void cmVisualStudio10TargetGenerator::WriteExtraSource(cmSourceFile const* sf)
 
     if (!deployContent.empty()) {
       cmGeneratorExpression ge;
-      CM_AUTO_PTR<cmCompiledGeneratorExpression> cge = ge.Parse(deployContent);
+      std::unique_ptr<cmCompiledGeneratorExpression> cge =
+        ge.Parse(deployContent);
       // Deployment location cannot be set on a configuration basis
       if (!deployLocation.empty()) {
         this->WriteString("<Link>", 3);
@@ -1768,6 +1786,28 @@ void cmVisualStudio10TargetGenerator::WriteExtraSource(cmSourceFile const* sf)
       this->WriteString("<ShaderModel>", 3);
       (*this->BuildFileStream) << cmVS10EscapeXML(shaderModel)
                                << "</ShaderModel>\n";
+    }
+    if (!outputHeaderFile.empty()) {
+      for (size_t i = 0; i != this->Configurations.size(); ++i) {
+        this->WriteString("<HeaderFileOutput Condition=\""
+                          "'$(Configuration)|$(Platform)'=='",
+                          3);
+        (*this->BuildFileStream) << this->Configurations[i] << "|"
+                                 << this->Platform << "'\">"
+                                 << cmVS10EscapeXML(outputHeaderFile);
+        this->WriteString("</HeaderFileOutput>\n", 0);
+      }
+    }
+    if (!variableName.empty()) {
+      for (size_t i = 0; i != this->Configurations.size(); ++i) {
+        this->WriteString("<VariableName Condition=\""
+                          "'$(Configuration)|$(Platform)'=='",
+                          3);
+        (*this->BuildFileStream) << this->Configurations[i] << "|"
+                                 << this->Platform << "'\">"
+                                 << cmVS10EscapeXML(variableName);
+        this->WriteString("</VariableName>\n", 0);
+      }
     }
     if (!shaderAdditionalFlags.empty()) {
       this->WriteString("<AdditionalOptions>", 3);
@@ -2093,9 +2133,9 @@ bool cmVisualStudio10TargetGenerator::OutputSourceSpecificFlags(
       }
       if (configDependentFlags) {
         cmGeneratorExpression ge;
-        CM_AUTO_PTR<cmCompiledGeneratorExpression> cge = ge.Parse(flags);
-        std::string evaluatedFlags =
-          cge->Evaluate(this->LocalGenerator, *config);
+        std::unique_ptr<cmCompiledGeneratorExpression> cge = ge.Parse(flags);
+        std::string evaluatedFlags = cge->Evaluate(
+          this->LocalGenerator, *config, false, this->GeneratorTarget);
         clOptions.Parse(evaluatedFlags.c_str());
       } else {
         clOptions.Parse(flags.c_str());
@@ -2301,16 +2341,16 @@ bool cmVisualStudio10TargetGenerator::ComputeClOptions(
 
   cmGlobalVisualStudio10Generator* gg =
     static_cast<cmGlobalVisualStudio10Generator*>(this->GlobalGenerator);
-  CM_AUTO_PTR<Options> pOptions;
+  std::unique_ptr<Options> pOptions;
   switch (this->ProjectType) {
     case vcxproj:
-      pOptions = CM_AUTO_PTR<Options>(new Options(
-        this->LocalGenerator, Options::Compiler, gg->GetClFlagTable()));
+      pOptions = cm::make_unique<Options>(
+        this->LocalGenerator, Options::Compiler, gg->GetClFlagTable());
       break;
     case csproj:
-      pOptions = CM_AUTO_PTR<Options>(new Options(this->LocalGenerator,
-                                                  Options::CSharpCompiler,
-                                                  gg->GetCSharpFlagTable()));
+      pOptions =
+        cm::make_unique<Options>(this->LocalGenerator, Options::CSharpCompiler,
+                                 gg->GetCSharpFlagTable());
       break;
   }
   Options& clOptions = *pOptions;
@@ -2524,8 +2564,8 @@ bool cmVisualStudio10TargetGenerator::ComputeRcOptions(
 {
   cmGlobalVisualStudio10Generator* gg =
     static_cast<cmGlobalVisualStudio10Generator*>(this->GlobalGenerator);
-  CM_AUTO_PTR<Options> pOptions(new Options(
-    this->LocalGenerator, Options::ResourceCompiler, gg->GetRcFlagTable()));
+  auto pOptions = cm::make_unique<Options>(
+    this->LocalGenerator, Options::ResourceCompiler, gg->GetRcFlagTable());
   Options& rcOptions = *pOptions;
 
   std::string CONFIG = cmSystemTools::UpperCase(configName);
@@ -2585,8 +2625,8 @@ bool cmVisualStudio10TargetGenerator::ComputeCudaOptions(
 {
   cmGlobalVisualStudio10Generator* gg =
     static_cast<cmGlobalVisualStudio10Generator*>(this->GlobalGenerator);
-  CM_AUTO_PTR<Options> pOptions(new Options(
-    this->LocalGenerator, Options::CudaCompiler, gg->GetCudaFlagTable()));
+  auto pOptions = cm::make_unique<Options>(
+    this->LocalGenerator, Options::CudaCompiler, gg->GetCudaFlagTable());
   Options& cudaOptions = *pOptions;
 
   // Get compile flags for CUDA in this directory.
@@ -2615,6 +2655,13 @@ bool cmVisualStudio10TargetGenerator::ComputeCudaOptions(
     // We drop the %(Extension) component as CMake expects all PTX files
     // to not have the source file extension at all
     cudaOptions.AddFlag("CompileOut", "$(IntDir)%(Filename).ptx");
+  }
+
+  // CUDA automatically passes the proper '--machine' flag to nvcc
+  // for the current architecture, but does not reflect this default
+  // in the user-visible IDE settings.  Set it explicitly.
+  if (this->Platform == "x64") {
+    cudaOptions.AddFlag("TargetMachinePlatform", "64");
   }
 
   // Convert the host compiler options to the toolset's abstractions
@@ -2693,8 +2740,8 @@ bool cmVisualStudio10TargetGenerator::ComputeCudaLinkOptions(
 {
   cmGlobalVisualStudio10Generator* gg =
     static_cast<cmGlobalVisualStudio10Generator*>(this->GlobalGenerator);
-  CM_AUTO_PTR<Options> pOptions(new Options(
-    this->LocalGenerator, Options::CudaCompiler, gg->GetCudaFlagTable()));
+  auto pOptions = cm::make_unique<Options>(
+    this->LocalGenerator, Options::CudaCompiler, gg->GetCudaFlagTable());
   Options& cudaLinkOptions = *pOptions;
 
   // Determine if we need to do a device link
@@ -2764,8 +2811,8 @@ bool cmVisualStudio10TargetGenerator::ComputeMasmOptions(
 {
   cmGlobalVisualStudio10Generator* gg =
     static_cast<cmGlobalVisualStudio10Generator*>(this->GlobalGenerator);
-  CM_AUTO_PTR<Options> pOptions(new Options(
-    this->LocalGenerator, Options::MasmCompiler, gg->GetMasmFlagTable()));
+  auto pOptions = cm::make_unique<Options>(
+    this->LocalGenerator, Options::MasmCompiler, gg->GetMasmFlagTable());
   Options& masmOptions = *pOptions;
 
   std::string CONFIG = cmSystemTools::UpperCase(configName);
@@ -2822,8 +2869,8 @@ bool cmVisualStudio10TargetGenerator::ComputeNasmOptions(
 {
   cmGlobalVisualStudio10Generator* gg =
     static_cast<cmGlobalVisualStudio10Generator*>(this->GlobalGenerator);
-  CM_AUTO_PTR<Options> pOptions(new Options(
-    this->LocalGenerator, Options::NasmCompiler, gg->GetNasmFlagTable()));
+  auto pOptions = cm::make_unique<Options>(
+    this->LocalGenerator, Options::NasmCompiler, gg->GetNasmFlagTable());
   Options& nasmOptions = *pOptions;
 
   std::string CONFIG = cmSystemTools::UpperCase(configName);
@@ -2984,7 +3031,7 @@ void cmVisualStudio10TargetGenerator::WriteAntBuildOptions(
   if (const char* nativeLibDirectoriesExpression =
         this->GeneratorTarget->GetProperty("ANDROID_NATIVE_LIB_DIRECTORIES")) {
     cmGeneratorExpression ge;
-    CM_AUTO_PTR<cmCompiledGeneratorExpression> cge =
+    std::unique_ptr<cmCompiledGeneratorExpression> cge =
       ge.Parse(nativeLibDirectoriesExpression);
     std::string nativeLibDirs =
       cge->Evaluate(this->LocalGenerator, configName);
@@ -2997,7 +3044,7 @@ void cmVisualStudio10TargetGenerator::WriteAntBuildOptions(
         this->GeneratorTarget->GetProperty(
           "ANDROID_NATIVE_LIB_DEPENDENCIES")) {
     cmGeneratorExpression ge;
-    CM_AUTO_PTR<cmCompiledGeneratorExpression> cge =
+    std::unique_ptr<cmCompiledGeneratorExpression> cge =
       ge.Parse(nativeLibDependenciesExpression);
     std::string nativeLibDeps =
       cge->Evaluate(this->LocalGenerator, configName);
@@ -3016,7 +3063,7 @@ void cmVisualStudio10TargetGenerator::WriteAntBuildOptions(
   if (const char* jarDirectoriesExpression =
         this->GeneratorTarget->GetProperty("ANDROID_JAR_DIRECTORIES")) {
     cmGeneratorExpression ge;
-    CM_AUTO_PTR<cmCompiledGeneratorExpression> cge =
+    std::unique_ptr<cmCompiledGeneratorExpression> cge =
       ge.Parse(jarDirectoriesExpression);
     std::string jarDirectories =
       cge->Evaluate(this->LocalGenerator, configName);
@@ -3078,8 +3125,9 @@ bool cmVisualStudio10TargetGenerator::ComputeLinkOptions(
 {
   cmGlobalVisualStudio10Generator* gg =
     static_cast<cmGlobalVisualStudio10Generator*>(this->GlobalGenerator);
-  CM_AUTO_PTR<Options> pOptions(new Options(
-    this->LocalGenerator, Options::Linker, gg->GetLinkFlagTable(), 0, this));
+  auto pOptions =
+    cm::make_unique<Options>(this->LocalGenerator, Options::Linker,
+                             gg->GetLinkFlagTable(), nullptr, this);
   Options& linkOptions = *pOptions;
 
   cmGeneratorTarget::LinkClosure const* linkClosure =
@@ -3193,8 +3241,6 @@ bool cmVisualStudio10TargetGenerator::ComputeLinkOptions(
   }
 
   if (this->MSTools) {
-    linkOptions.AddFlag("Version", "");
-
     if (this->GeneratorTarget->GetPropertyAsBool("WIN32_EXECUTABLE")) {
       if (this->GlobalGenerator->TargetsWindowsCE()) {
         linkOptions.AddFlag("SubSystem", "WindowsCE");
@@ -3264,6 +3310,7 @@ bool cmVisualStudio10TargetGenerator::ComputeLinkOptions(
   }
 
   linkOptions.Parse(flags.c_str());
+  linkOptions.FixManifestUACFlags();
 
   if (this->MSTools) {
     cmGeneratorTarget::ModuleDefinitionInfo const* mdi =

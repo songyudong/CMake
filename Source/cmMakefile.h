@@ -8,6 +8,7 @@
 #include "cmsys/RegularExpression.hxx"
 #include <deque>
 #include <map>
+#include <memory> // IWYU pragma: keep
 #include <set>
 #include <stack>
 #include <stddef.h>
@@ -22,7 +23,6 @@
 #include "cmStateSnapshot.h"
 #include "cmStateTypes.h"
 #include "cmTarget.h"
-#include "cm_auto_ptr.hxx"
 #include "cmake.h"
 
 #if defined(CMAKE_BUILD_WITH_CMAKE)
@@ -92,7 +92,7 @@ public:
    * Remove the function blocker whose scope ends with the given command.
    * This returns ownership of the function blocker object.
    */
-  CM_AUTO_PTR<cmFunctionBlocker> RemoveFunctionBlocker(
+  std::unique_ptr<cmFunctionBlocker> RemoveFunctionBlocker(
     cmFunctionBlocker* fb, const cmListFileFunction& lff);
 
   /**
@@ -616,7 +616,7 @@ public:
   cmMessenger* GetMessenger() const;
   cmGlobalGenerator* GetGlobalGenerator() const;
 
-  void cmMakefile::GetTestDetails(std::vector<std::pair<std::string, std::string>> &testDetails);
+  void GetTestNames(std::vector<std::string> &testNames);
 
   /**
    * Get all the source files this makefile knows about
@@ -625,7 +625,6 @@ public:
   {
     return this->SourceFiles;
   }
-  std::vector<cmSourceFile*>& GetSourceFiles() { return this->SourceFiles; }
 
   /**
    * Is there a source file that has the provided source file as an output?
@@ -665,6 +664,10 @@ public:
     }
   }
   std::vector<cmInstallGenerator*>& GetInstallGenerators()
+  {
+    return this->InstallGenerators;
+  }
+  const std::vector<cmInstallGenerator*>& GetInstallGenerators() const
   {
     return this->InstallGenerators;
   }
@@ -784,10 +787,11 @@ public:
 
   void EnforceDirectoryLevelRules() const;
 
-  void AddEvaluationFile(const std::string& inputFile,
-                         CM_AUTO_PTR<cmCompiledGeneratorExpression> outputName,
-                         CM_AUTO_PTR<cmCompiledGeneratorExpression> condition,
-                         bool inputIsContent);
+  void AddEvaluationFile(
+    const std::string& inputFile,
+    std::unique_ptr<cmCompiledGeneratorExpression> outputName,
+    std::unique_ptr<cmCompiledGeneratorExpression> condition,
+    bool inputIsContent);
   std::vector<cmGeneratorExpressionEvaluationFile*> GetEvaluationFiles() const;
 
   std::vector<cmExportBuildFileGenerator*> GetExportBuildFileGenerators()

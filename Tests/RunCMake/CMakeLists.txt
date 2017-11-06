@@ -15,6 +15,7 @@ macro(add_RunCMake_test test)
   add_test(NAME RunCMake.${test} COMMAND ${CMAKE_CMAKE_COMMAND}
     -DCMAKE_MODULE_PATH=${CMAKE_CURRENT_SOURCE_DIR}
     -DRunCMake_GENERATOR=${CMAKE_GENERATOR}
+    -DRunCMake_GENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}
     -DRunCMake_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
     -DRunCMake_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
     -DRunCMake_MAKE_PROGRAM=${CMake_TEST_EXPLICIT_MAKE_PROGRAM}
@@ -47,6 +48,7 @@ function(add_RunCMake_test_group test types)
         -DTEST_TYPE=${type}
         -DCMAKE_MODULE_PATH=${CMAKE_CURRENT_SOURCE_DIR}
         -DRunCMake_GENERATOR=${CMAKE_GENERATOR}
+        -DRunCMake_GENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}
         -DRunCMake_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
         -DRunCMake_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
         -DRunCMake_MAKE_PROGRAM=${CMake_TEST_EXPLICIT_MAKE_PROGRAM}
@@ -141,12 +143,15 @@ add_RunCMake_test(DisallowedCommands)
 add_RunCMake_test(ExternalData)
 add_RunCMake_test(FeatureSummary)
 add_RunCMake_test(FPHSA)
+add_RunCMake_test(FindBoost)
 if(NOT CMAKE_C_COMPILER_ID MATCHES "Watcom")
   add_RunCMake_test(GenerateExportHeader)
 endif()
 add_RunCMake_test(GeneratorExpression)
+add_RunCMake_test(GeneratorInstance)
 add_RunCMake_test(GeneratorPlatform)
 add_RunCMake_test(GeneratorToolset)
+add_RunCMake_test(GetPrerequisites)
 add_RunCMake_test(GNUInstallDirs -DSYSTEM_NAME=${CMAKE_SYSTEM_NAME})
 add_RunCMake_test(GoogleTest) # Note: does not actually depend on Google Test
 add_RunCMake_test(TargetPropertyGeneratorExpressions)
@@ -180,6 +185,8 @@ add_RunCMake_test(Syntax)
 add_RunCMake_test(add_custom_command)
 add_RunCMake_test(add_custom_target)
 add_RunCMake_test(add_dependencies)
+add_RunCMake_test(add_executable)
+add_RunCMake_test(add_library)
 add_RunCMake_test(add_subdirectory)
 add_RunCMake_test(build_command)
 add_executable(exit_code exit_code.c)
@@ -225,20 +232,38 @@ add_RunCMake_test(separate_arguments)
 add_RunCMake_test(set_property)
 add_RunCMake_test(string)
 add_RunCMake_test(test_include_dirs)
-foreach(var
-    CMAKE_C_COMPILER_ID
-    CMAKE_C_COMPILER_VERSION
-    CMAKE_C_STANDARD_DEFAULT
-    CMAKE_CXX_COMPILER_ID
-    CMAKE_CXX_COMPILER_VERSION
-    CMAKE_CXX_STANDARD_DEFAULT
-    CMake_TEST_CUDA
-    )
-  if(DEFINED ${var})
-    list(APPEND try_compile_ARGS -D${var}=${${var}})
+
+function(add_RunCMake_test_try_compile)
+  if(CMAKE_VERSION VERSION_LESS 3.9.20170907 AND "x${CMAKE_CXX_COMPILER_ID}" STREQUAL "xMSVC")
+    # Older CMake versions do not know about MSVC language standards.
+    # Approximate our logic from MSVC-CXX.cmake.
+    if ((CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19.0.24215.1 AND
+         CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19.10) OR
+       CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19.10.25017)
+      set(CMAKE_CXX_STANDARD_DEFAULT 14)
+    elseif (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16.0)
+      set(CMAKE_CXX_STANDARD_DEFAULT "")
+    else()
+      unset(CMAKE_CXX_STANDARD_DEFAULT)
+    endif()
   endif()
-endforeach()
-add_RunCMake_test(try_compile)
+  foreach(var
+      CMAKE_C_COMPILER_ID
+      CMAKE_C_COMPILER_VERSION
+      CMAKE_C_STANDARD_DEFAULT
+      CMAKE_CXX_COMPILER_ID
+      CMAKE_CXX_COMPILER_VERSION
+      CMAKE_CXX_STANDARD_DEFAULT
+      CMake_TEST_CUDA
+      )
+    if(DEFINED ${var})
+      list(APPEND try_compile_ARGS -D${var}=${${var}})
+    endif()
+  endforeach()
+  add_RunCMake_test(try_compile)
+endfunction()
+add_RunCMake_test_try_compile()
+
 add_RunCMake_test(try_run)
 add_RunCMake_test(set)
 add_RunCMake_test(variable_watch)
@@ -305,6 +330,7 @@ add_RunCMake_test(install)
 add_RunCMake_test(CPackConfig)
 add_RunCMake_test(CPackInstallProperties)
 add_RunCMake_test(ExternalProject)
+add_RunCMake_test(FetchContent)
 add_RunCMake_test(CTestCommandLine)
 # Only run this test on unix platforms that support
 # symbolic links

@@ -50,6 +50,8 @@
 #include <windows.h>
 // include wincrypt.h after windows.h
 #include <wincrypt.h>
+
+#include "cm_uv.h"
 #else
 #include <sys/time.h>
 #include <unistd.h>
@@ -458,7 +460,7 @@ void cmSystemTools::ParseWindowsCommandLine(const char* command,
           arg.append(1, *c);
         } else if (in_argument) {
           args.push_back(arg);
-          arg = "";
+          arg.clear();
           in_argument = false;
         }
       } else {
@@ -559,7 +561,7 @@ std::vector<std::string> cmSystemTools::ParseArguments(const char* command)
     while (*c == ' ' || *c == '\t') {
       ++c;
     }
-    arg = "";
+    arg.clear();
     if (*c == '"') {
       // Parse a quoted argument.
       ++c;
@@ -700,6 +702,7 @@ bool cmSystemTools::RunSingleCommand(std::vector<std::string> const& command,
                                      double timeout, Encoding encoding)
 {
   std::vector<const char*> argv;
+  argv.reserve(command.size() + 1);
   for (std::string const& cmd : command) {
     argv.push_back(cmd.c_str());
   }
@@ -803,6 +806,8 @@ bool cmSystemTools::RunSingleCommand(std::vector<std::string> const& command,
     }
     if (captureStdErr) {
       captureStdErr->append(exception_str, strlen(exception_str));
+    } else if (captureStdOut) {
+      captureStdOut->append(exception_str, strlen(exception_str));
     }
     result = false;
   } else if (cmsysProcess_GetState(cp) == cmsysProcess_State_Error) {
@@ -812,6 +817,8 @@ bool cmSystemTools::RunSingleCommand(std::vector<std::string> const& command,
     }
     if (captureStdErr) {
       captureStdErr->append(error_str, strlen(error_str));
+    } else if (captureStdOut) {
+      captureStdOut->append(error_str, strlen(error_str));
     }
     result = false;
   } else if (cmsysProcess_GetState(cp) == cmsysProcess_State_Expired) {
@@ -937,6 +944,39 @@ cmSystemTools::WindowsFileRetry cmSystemTools::GetWindowsFileRetry()
     retry.Delay = data[1] ? data[1] : 500;
   }
   return retry;
+}
+
+std::string cmSystemTools::GetRealPath(const std::string& path,
+                                       std::string* errorMessage)
+{
+  // uv_fs_realpath uses Windows Vista API so fallback to kwsys if not found
+  std::string resolved_path;
+  uv_fs_t req;
+  int err = uv_fs_realpath(NULL, &req, path.c_str(), NULL);
+  if (!err) {
+    resolved_path = std::string((char*)req.ptr);
+    cmSystemTools::ConvertToUnixSlashes(resolved_path);
+    // Normalize to upper-case drive letter as GetActualCaseForPath does.
+    if (resolved_path.size() > 1 && resolved_path[1] == ':') {
+      resolved_path[0] = toupper(resolved_path[0]);
+    }
+  } else if (err == UV_ENOSYS) {
+    resolved_path = cmsys::SystemTools::GetRealPath(path, errorMessage);
+  } else if (errorMessage) {
+    LPSTR message = NULL;
+    DWORD size = FormatMessageA(
+      FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+      NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&message, 0,
+      NULL);
+    *errorMessage = std::string(message, size);
+    LocalFree(message);
+
+    resolved_path = "";
+  } else {
+    resolved_path = path;
+  }
+  return resolved_path;
 }
 #endif
 
@@ -1184,7 +1224,7 @@ void cmSystemTools::ExpandListArgument(const std::string& arg,
           if (!newArg.empty() || emptyArgs) {
             // Add the last argument if the string is not empty.
             newargs.push_back(newArg);
-            newArg = "";
+            newArg.clear();
           }
         }
       } break;
@@ -1375,7 +1415,7 @@ std::string cmSystemTools::CollapseCombinedPath(std::string const& dir,
   if (fileComponents.empty()) {
     return dir;
   }
-  if (fileComponents[0] != "") {
+  if (!fileComponents[0].empty()) {
     // File is not a relative path.
     return file;
   }
@@ -1771,7 +1811,7 @@ int cmSystemTools::WaitForLine(cmsysProcess* process, std::string& line,
                                double timeout, std::vector<char>& out,
                                std::vector<char>& err)
 {
-  line = "";
+  line.clear();
   std::vector<char>::iterator outiter = out.begin();
   std::vector<char>::iterator erriter = err.begin();
   cmProcessOutput processOutput;
@@ -2061,7 +2101,7 @@ void cmSystemTools::FindCMakeResources(const char* argv0)
 #undef CM_EXE_PATH_LOCAL_SIZE
   char* exe_path = exe_path_local;
   if (_NSGetExecutablePath(exe_path, &exe_path_size) < 0) {
-    exe_path = (char*)malloc(exe_path_size);
+    exe_path = static_cast<char*>(malloc(exe_path_size));
     _NSGetExecutablePath(exe_path, &exe_path_size);
   }
   exe_dir =
@@ -2111,19 +2151,19 @@ void cmSystemTools::FindCMakeResources(const char* argv0)
   cmSystemToolsCMakeGUICommand += "/cmake-gui";
   cmSystemToolsCMakeGUICommand += cmSystemTools::GetExecutableExtension();
   if (!cmSystemTools::FileExists(cmSystemToolsCMakeGUICommand.c_str())) {
-    cmSystemToolsCMakeGUICommand = "";
+    cmSystemToolsCMakeGUICommand.clear();
   }
   cmSystemToolsCMakeCursesCommand = exe_dir;
   cmSystemToolsCMakeCursesCommand += "/ccmake";
   cmSystemToolsCMakeCursesCommand += cmSystemTools::GetExecutableExtension();
   if (!cmSystemTools::FileExists(cmSystemToolsCMakeCursesCommand.c_str())) {
-    cmSystemToolsCMakeCursesCommand = "";
+    cmSystemToolsCMakeCursesCommand.clear();
   }
   cmSystemToolsCMClDepsCommand = exe_dir;
   cmSystemToolsCMClDepsCommand += "/cmcldeps";
   cmSystemToolsCMClDepsCommand += cmSystemTools::GetExecutableExtension();
   if (!cmSystemTools::FileExists(cmSystemToolsCMClDepsCommand.c_str())) {
-    cmSystemToolsCMClDepsCommand = "";
+    cmSystemToolsCMClDepsCommand.clear();
   }
 
 #ifdef CMAKE_BUILD_WITH_CMAKE
@@ -2321,12 +2361,12 @@ struct cmSystemToolsRPathInfo
 };
 #endif
 
+#if defined(CMAKE_USE_ELF_PARSER)
 bool cmSystemTools::ChangeRPath(std::string const& file,
                                 std::string const& oldRPath,
                                 std::string const& newRPath, std::string* emsg,
                                 bool* changed)
 {
-#if defined(CMAKE_USE_ELF_PARSER)
   if (changed) {
     *changed = false;
   }
@@ -2492,15 +2532,16 @@ bool cmSystemTools::ChangeRPath(std::string const& file,
     *changed = true;
   }
   return true;
-#else
-  (void)file;
-  (void)oldRPath;
-  (void)newRPath;
-  (void)emsg;
-  (void)changed;
-  return false;
-#endif
 }
+#else
+bool cmSystemTools::ChangeRPath(std::string const& /*file*/,
+                                std::string const& /*oldRPath*/,
+                                std::string const& /*newRPath*/,
+                                std::string* /*emsg*/, bool* /*changed*/)
+{
+  return false;
+}
+#endif
 
 bool cmSystemTools::VersionCompare(cmSystemTools::CompareOp op,
                                    const char* lhss, const char* rhss)
@@ -2634,10 +2675,10 @@ int cmSystemTools::strverscmp(std::string const& lhs, std::string const& rhs)
   return cm_strverscmp(lhs.c_str(), rhs.c_str());
 }
 
+#if defined(CMAKE_USE_ELF_PARSER)
 bool cmSystemTools::RemoveRPath(std::string const& file, std::string* emsg,
                                 bool* removed)
 {
-#if defined(CMAKE_USE_ELF_PARSER)
   if (removed) {
     *removed = false;
   }
@@ -2775,13 +2816,14 @@ bool cmSystemTools::RemoveRPath(std::string const& file, std::string* emsg,
     *removed = true;
   }
   return true;
-#else
-  (void)file;
-  (void)emsg;
-  (void)removed;
-  return false;
-#endif
 }
+#else
+bool cmSystemTools::RemoveRPath(std::string const& /*file*/,
+                                std::string* /*emsg*/, bool* /*removed*/)
+{
+  return false;
+}
+#endif
 
 bool cmSystemTools::CheckRPath(std::string const& file,
                                std::string const& newRPath)

@@ -27,6 +27,11 @@ public:
   virtual void WriteSLNHeader(std::ostream& fout);
 
   virtual const char* GetToolsVersion() { return "15.0"; }
+
+  bool SetGeneratorInstance(std::string const& i, cmMakefile* mf) override;
+
+  bool GetVSInstance(std::string& dir) const;
+
 protected:
   bool InitializeWindows(cmMakefile* mf) override;
   virtual bool SelectWindowsStoreToolset(std::string& toolset) const;
@@ -41,15 +46,11 @@ protected:
   // of the toolset is installed
   bool IsWindowsStoreToolsetInstalled() const;
 
-  std::string FindMSBuildCommand() override;
-  std::string FindDevEnvCommand() override;
-
-  std::string const& GetMSBuildCommand();
-  std::string MSBuildCommand;
-  bool MSBuildCommandInitialized;
-
   // Check for a Win 8 SDK known to the registry or VS installer tool.
   bool IsWin81SDKInstalled() const;
+
+  std::string FindMSBuildCommand() override;
+  std::string FindDevEnvCommand() override;
 
 private:
   class Factory;

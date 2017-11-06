@@ -8,6 +8,7 @@
 #include <functional>
 #include <iomanip>
 #include <iterator>
+#include <memory> // IWYU pragma: keep
 #include <set>
 #include <sstream>
 #include <stdio.h>
@@ -28,7 +29,6 @@
 #include "cmSystemTools.h"
 #include "cmWorkingDirectory.h"
 #include "cmXMLWriter.h"
-#include "cm_auto_ptr.hxx"
 #include "cm_utf8.h"
 #include "cmake.h"
 #include "cmsys/FStream.hxx"
@@ -351,8 +351,8 @@ void cmCTestTestHandler::Initialize()
   this->TestResults.clear();
 
   this->CustomTestsIgnore.clear();
-  this->StartTest = "";
-  this->EndTest = "";
+  this->StartTest.clear();
+  this->EndTest.clear();
 
   this->CustomPreTest.clear();
   this->CustomPostTest.clear();
@@ -368,13 +368,13 @@ void cmCTestTestHandler::Initialize()
   this->UseExcludeRegExpFirst = false;
   this->IncludeLabelRegularExpression = "";
   this->ExcludeLabelRegularExpression = "";
-  this->IncludeRegExp = "";
-  this->ExcludeRegExp = "";
+  this->IncludeRegExp.clear();
+  this->ExcludeRegExp.clear();
   this->ExcludeFixtureRegExp.clear();
   this->ExcludeFixtureSetupRegExp.clear();
   this->ExcludeFixtureCleanupRegExp.clear();
 
-  TestsToRunString = "";
+  TestsToRunString.clear();
   this->UseUnion = false;
   this->TestList.clear();
 }
@@ -1595,9 +1595,9 @@ std::string cmCTestTestHandler::FindExecutable(
   // if everything else failed, check the users path, but only if a full path
   // wasn't specified
   if (fullPath.empty() && filepath.empty()) {
-    std::string path = cmSystemTools::FindProgram(filename.c_str());
-    if (path != "") {
-      resultingConfig = "";
+    std::string const path = cmSystemTools::FindProgram(filename.c_str());
+    if (!path.empty()) {
+      resultingConfig.clear();
       return path;
     }
   }
@@ -1636,9 +1636,9 @@ void cmCTestTestHandler::GetListOfTests()
   cm.SetHomeOutputDirectory("");
   cm.GetCurrentSnapshot().SetDefaultDefinitions();
   cmGlobalGenerator gg(&cm);
-  CM_AUTO_PTR<cmMakefile> mf(new cmMakefile(&gg, cm.GetCurrentSnapshot()));
-  mf->AddDefinition("CTEST_CONFIGURATION_TYPE",
-                    this->CTest->GetConfigType().c_str());
+  cmMakefile mf(&gg, cm.GetCurrentSnapshot());
+  mf.AddDefinition("CTEST_CONFIGURATION_TYPE",
+                   this->CTest->GetConfigType().c_str());
 
   // Add handler for ADD_TEST
   cmCTestAddTestCommand* newCom1 = new cmCTestAddTestCommand;
@@ -1678,7 +1678,7 @@ void cmCTestTestHandler::GetListOfTests()
     return;
   }
 
-  if (!mf->ReadListFile(testFilename)) {
+  if (!mf.ReadListFile(testFilename)) {
     return;
   }
   if (cmSystemTools::GetErrorOccuredFlag()) {
@@ -1802,7 +1802,7 @@ void cmCTestTestHandler::ExpandTestsToRunInformationForRerunFailed()
     if (fileNameSubstring != pattern) {
       continue;
     }
-    if (logName == "") {
+    if (logName.empty()) {
       logName = fileName;
     } else {
       // if multiple matching logs were found we use the most recently
