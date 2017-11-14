@@ -26,6 +26,7 @@
 #include "cm_uv.h"
 #include "cmake.h"
 #include "cmTest.h"
+#include "cmTestGenerator.h"
 
 #include <algorithm>
 #include <cassert>
@@ -695,74 +696,16 @@ static Json::Value DumpCTestInfo(const std::string & name, cmTest * testInfo)
   return result;
 }
 
-static Json::Value DumpCTestTarget(cmGeneratorTarget* target,
-  const std::string& config)
-{
-  cmLocalGenerator* lg = target->GetLocalGenerator();
-  const cmState* state = lg->GetState();
-
-  const cmStateEnums::TargetType type = target->GetType();
-  const std::string typeName = state->GetTargetTypeName(type);
-
-  Json::Value ttl = Json::arrayValue;
-  ttl.append("EXECUTABLE");
-  ttl.append("STATIC_LIBRARY");
-  ttl.append("SHARED_LIBRARY");
-  ttl.append("MODULE_LIBRARY");
-  ttl.append("OBJECT_LIBRARY");
-  ttl.append("UTILITY");
-  ttl.append("INTERFACE_LIBRARY");
-  ttl.append("GLOBAL_TARGET");
-
-  if (!hasString(ttl, typeName) || target->IsImported()) {
-    return Json::Value();
-  }
-
-  Json::Value result = Json::objectValue;
-  result[kNAME_KEY] = target->GetName();
-  result[kTYPE_KEY] = typeName;
-
-  if (type == cmStateEnums::INTERFACE_LIBRARY) {
-    return result;
-  }
-  result[kFULL_NAME_KEY] = target->GetFullName(config);
-
-  if (target->Makefile->IsOn("CMAKE_TESTING_ENABLED")) {
-    result[kHAS_ENABLED_TESTS] = true;
-    std::vector<std::string> CTestNames;
-
-    Json::Value testInfos = Json::arrayValue;
-    std::vector<std::string> testNames;
-    target->Makefile->GetTestNames(testNames);
-    for (auto &name : testNames) {
-      auto test = target->Makefile->GetTest(name);
-      if (test != nullptr) {
-          testInfos.append(DumpCTestInfo(name, test));
-      }
-    }
-    result[kCTESTS_INFO] = testInfos;
-  }
-  else {
-    result[kHAS_ENABLED_TESTS] = false;
-  }
-
-  return result;
-}
-
-static Json::Value DumpCTestTargetsList(
-  const std::vector<cmLocalGenerator*>& generators, const std::string& config)
+static Json::Value DumpMakefileTests(
+	cmMakefile* mf, const std::string& config)
 {
   Json::Value result = Json::arrayValue;
+  std::vector<std::string> testNames;
+  mf->GetTestNames(testNames);
 
-  std::vector<cmGeneratorTarget*> targetList;
-  for (const auto& lgIt : generators) {
-    auto list = lgIt->GetGeneratorTargets();
-    targetList.insert(targetList.end(), list.begin(), list.end());
-  }
-  std::sort(targetList.begin(), targetList.end());
-
-  for (cmGeneratorTarget* target : targetList) {
-    Json::Value tmp = DumpCTestTarget(target, config);
+  for (const auto& it : testNames) {
+    auto test = mf->GetTest(it);
+    Json::Value tmp = DumpCTestInfo(it, test);
     if (!tmp.isNull()) {
       result.append(tmp);
     }
@@ -783,11 +726,11 @@ static Json::Value DumpCTestProjectList(const cmake* cm, std::string const& conf
 
     // All Projects must have at least one local generator
     assert(!projectIt.second.empty());
-    const cmLocalGenerator* lg = projectIt.second.at(0);
+    cmLocalGenerator* lg = projectIt.second.at(0);
 
-    // Project structure information:
-    const cmMakefile* mf = lg->GetMakefile();
-    pObj[kTARGETS_KEY] = DumpCTestTargetsList(projectIt.second, config);
+    // Makefile in the project should already have the generated tests
+    cmMakefile* mf = lg->GetMakefile();
+    pObj[kCTESTS_INFO] = DumpMakefileTests(mf, config);
 
     result.append(pObj);
   }
