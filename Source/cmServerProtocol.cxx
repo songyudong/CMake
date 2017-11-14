@@ -696,10 +696,9 @@ static Json::Value DumpCTestInfo(const std::string & name, cmTest * testInfo)
   return result;
 }
 
-static Json::Value DumpMakefileTests(
-	cmMakefile* mf, const std::string& config)
+static void DumpMakefileTests(
+	cmMakefile* mf, const std::string& config, Json::Value * result)
 {
-  Json::Value result = Json::arrayValue;
   std::vector<std::string> testNames;
   mf->GetTestNames(testNames);
 
@@ -707,11 +706,9 @@ static Json::Value DumpMakefileTests(
     auto test = mf->GetTest(it);
     Json::Value tmp = DumpCTestInfo(it, test);
     if (!tmp.isNull()) {
-      result.append(tmp);
+      result->append(tmp);
     }
   }
-
-  return result;
 }
 
 static Json::Value DumpCTestProjectList(const cmake* cm, std::string const& config)
@@ -724,13 +721,16 @@ static Json::Value DumpCTestProjectList(const cmake* cm, std::string const& conf
     Json::Value pObj = Json::objectValue;
     pObj[kNAME_KEY] = projectIt.first;
 
-    // All Projects must have at least one local generator
-    assert(!projectIt.second.empty());
-    cmLocalGenerator* lg = projectIt.second.at(0);
+    Json::Value tests = Json::arrayValue;
 
-    // Makefile in the project should already have the generated tests
-    cmMakefile* mf = lg->GetMakefile();
-    pObj[kCTESTS_INFO] = DumpMakefileTests(mf, config);
+    // Gather tests for every generator
+    for (const auto & lg : projectIt.second) {
+      // Make sure they're generated. 
+      lg->GenerateTestFiles();
+      cmMakefile* mf = lg->GetMakefile();
+      DumpMakefileTests(mf, config, &tests);
+    }
+    pObj[kCTESTS_INFO] = tests;
 
     result.append(pObj);
   }
